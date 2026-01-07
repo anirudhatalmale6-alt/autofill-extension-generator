@@ -526,14 +526,23 @@ function autoLoginEmail(email, password) {
         const emailInput = document.querySelector('input[type="email"]') || document.querySelector('input[name="loginfmt"]');
         const pwdInput = document.querySelector('input[type="password"]') || document.querySelector('input[name="passwd"]');
 
+        // Check for "Stay signed in?" prompt - click Yes
+        const staySignedInBtn = document.querySelector('#idSIButton9');
+        const staySignedInText = document.body.innerText;
+        if (staySignedInText.includes('Stay signed in') || staySignedInText.includes('Keep me signed in')) {
+            if (staySignedInBtn) {
+                staySignedInBtn.click();
+                chrome.runtime.sendMessage({ action: 'clearEmailCreds' });
+                return;
+            }
+        }
+
         // If password field is visible, fill password
         if (pwdInput && pwdInput.offsetParent !== null) {
             setVal(pwdInput, password);
             setTimeout(() => {
                 const nextBtn = document.querySelector('input[type="submit"]') || document.querySelector('#idSIButton9');
                 if (nextBtn) nextBtn.click();
-                // Clear creds after password filled
-                chrome.runtime.sendMessage({ action: 'clearEmailCreds' });
             }, 500);
             return;
         }
