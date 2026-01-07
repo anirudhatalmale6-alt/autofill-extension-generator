@@ -549,7 +549,13 @@ function autoLoginEmail(email, password) {
 
         // If email field is visible, fill email
         if (emailInput && emailInput.offsetParent !== null) {
-            setVal(emailInput, email);
+            // Focus and fill email
+            emailInput.focus();
+            emailInput.value = email;
+            emailInput.dispatchEvent(new Event('input', { bubbles: true }));
+            emailInput.dispatchEvent(new Event('change', { bubbles: true }));
+            emailInput.dispatchEvent(new KeyboardEvent('keyup', { bubbles: true }));
+
             setTimeout(() => {
                 // Try multiple button selectors for Microsoft login
                 const nextBtn = document.querySelector('#idSIButton9') ||
@@ -558,12 +564,23 @@ function autoLoginEmail(email, password) {
                                 document.querySelector('[data-report-event="Signin_Submit"]');
                 console.log('[Ching] Clicking next button:', nextBtn);
                 if (nextBtn) {
+                    // Try multiple click methods
+                    nextBtn.focus();
                     nextBtn.click();
-                    // Also try form submit as backup
-                    const form = document.querySelector('form');
-                    if (form) form.submit();
+
+                    // Simulate mouse events
+                    nextBtn.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+                    nextBtn.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+                    nextBtn.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+
+                    // Try Enter key on email input
+                    setTimeout(() => {
+                        emailInput.dispatchEvent(new KeyboardEvent('keydown', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+                        emailInput.dispatchEvent(new KeyboardEvent('keypress', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+                        emailInput.dispatchEvent(new KeyboardEvent('keyup', { key: 'Enter', code: 'Enter', keyCode: 13, bubbles: true }));
+                    }, 200);
                 }
-            }, 800);
+            }, 1000);
         }
     }
 }
