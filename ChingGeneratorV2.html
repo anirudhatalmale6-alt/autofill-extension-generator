@@ -141,7 +141,7 @@
         <div class="card">
             <h2>Features</h2>
             <ul class="feature-list">
-                <li><span class="shortcut-box">F2</span> <strong>Select Profile</strong> - Popup to choose profile number + window size + position</li>
+                <li><span class="shortcut-box">F2</span> <strong>Select Profile</strong> - Popup to choose profile number</li>
                 <li><span class="shortcut-box">Alt+L</span> <strong>Auto-Login Email</strong> - Opens and logs into Gmail/Outlook for selected profile</li>
                 <li><span class="shortcut-box">Alt+X</span> <strong>Grab OTP</strong> - Reads verification code from email tab and fills it</li>
                 <li><span class="shortcut-box">Alt+F</span> <strong>Fill Form</strong> - Autofills current page with profile data</li>
@@ -351,31 +351,15 @@ chrome.commands.onCommand.addListener(async (command) => {
         chrome.scripting.executeScript({
             target: { tabId: tab.id },
             func: (total, current, email) => {
-                const input = prompt('SELECT PROFILE (1-' + total + ')\\n\\nCurrent: ' + (current+1) + ' - ' + email + '\\n\\nEnter number:', (current+1).toString());
+                const input = prompt('SELECT PROFILE (1-' + total + ')\\n\\nCurrent: ' + (current+1) + ' - ' + email + '\\n\\nEnter profile number:', (current+1).toString());
                 if (!input) return null;
-                const sizeInput = prompt('WINDOW SIZE:\\n1=1920x1080\\n2=1366x768\\n3=1280x720\\n4=1024x768\\n5=800x600 (Recommended)\\n6=375x667\\n7=No resize\\n\\nEnter (1-7):', '5');
-                const posInput = prompt('POSITION:\\n1=TopLeft  2=TopMid  3=TopRight\\n4=MidLeft  5=Center  6=MidRight\\n7=BotLeft  8=BotMid  9=BotRight\\n0=No move\\n\\nEnter (0-9):', '0');
-                return { profile: parseInt(input), size: sizeInput, position: parseInt(posInput) || 0 };
+                return { profile: parseInt(input) };
             },
             args: [profiles.length, selectedRow, profile?.email || 'N/A']
         }).then(async (results) => {
             const r = results[0]?.result;
             if (r && r.profile >= 1 && r.profile <= profiles.length) {
                 await chrome.storage.local.set({ selectedRow: r.profile - 1 });
-                const sizes = { '1': [1920,1080], '2': [1366,768], '3': [1280,720], '4': [1024,768], '5': [800,600], '6': [375,667] };
-                if (r.size && sizes[r.size]) {
-                    const [w, h] = sizes[r.size];
-                    const win = await chrome.windows.getCurrent();
-                    let updateObj = { width: w, height: h, state: 'normal' };
-                    if (r.position >= 1 && r.position <= 9) {
-                        const screenRes = await chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => ({ w: screen.availWidth, h: screen.availHeight }) });
-                        const sw = screenRes[0]?.result?.w || 1920, sh = screenRes[0]?.result?.h || 1080;
-                        const col = (r.position - 1) % 3, row = Math.floor((r.position - 1) / 3);
-                        updateObj.left = Math.max(0, col * Math.floor(sw/3) + Math.floor((sw/3 - w)/2));
-                        updateObj.top = Math.max(0, row * Math.floor(sh/3) + Math.floor((sh/3 - h)/2));
-                    }
-                    await chrome.windows.update(win.id, updateObj);
-                }
                 chrome.scripting.executeScript({ target: { tabId: tab.id }, func: (num) => { alert('Profile ' + num + ' selected!'); }, args: [r.profile] });
             }
         });
@@ -683,7 +667,7 @@ function showNotif(msg) {
     <button id="loginBtn" class="btn-email">Login Email (Alt+L)</button>
     <button id="otpBtn" class="btn-otp">Grab OTP (Alt+X)</button>
     <div class="shortcuts">
-        <div><span class="key">F2</span> Select profile + resize</div>
+        <div><span class="key">F2</span> Select profile</div>
         <div><span class="key">Alt+L</span> Auto-login email</div>
         <div><span class="key">Alt+X</span> Grab OTP from email</div>
     </div>
