@@ -19,7 +19,7 @@
             padding: 20px;
         }
         .container {
-            max-width: 1200px;
+            max-width: 1400px;
             margin: 0 auto;
         }
         h1 {
@@ -54,10 +54,10 @@
         table {
             width: 100%;
             border-collapse: collapse;
-            min-width: 1000px;
+            min-width: 1800px;
         }
         th, td {
-            padding: 10px 8px;
+            padding: 8px 5px;
             text-align: left;
             border-bottom: 1px solid rgba(255,255,255,0.1);
         }
@@ -65,16 +65,17 @@
             background: rgba(0,212,255,0.1);
             color: #00d4ff;
             font-weight: 600;
-            font-size: 0.85rem;
+            font-size: 0.75rem;
+            white-space: nowrap;
         }
         td input {
             width: 100%;
-            padding: 8px;
+            padding: 6px;
             border: 1px solid rgba(255,255,255,0.2);
-            border-radius: 6px;
+            border-radius: 4px;
             background: rgba(255,255,255,0.05);
             color: #fff;
-            font-size: 0.85rem;
+            font-size: 0.8rem;
         }
         td input:focus {
             outline: none;
@@ -151,12 +152,16 @@
             line-height: 1.6;
         }
         .delete-col {
-            width: 60px;
+            width: 50px;
             text-align: center;
         }
         #profileCount {
             color: #00d4ff;
             font-weight: bold;
+        }
+        .section-header {
+            background: rgba(123,44,191,0.2);
+            color: #c77dff;
         }
     </style>
 </head>
@@ -182,10 +187,12 @@
                 <table id="profileTable">
                     <thead>
                         <tr>
-                            <th>Profile Name</th>
+                            <th>Profile</th>
+                            <th>Full Name</th>
                             <th>First Name</th>
                             <th>Last Name</th>
                             <th>Email</th>
+                            <th>Password</th>
                             <th>Phone</th>
                             <th>DOB</th>
                             <th>Country</th>
@@ -193,6 +200,10 @@
                             <th>City</th>
                             <th>Address</th>
                             <th>Zipcode</th>
+                            <th class="section-header">Card Name</th>
+                            <th class="section-header">Card Number</th>
+                            <th class="section-header">Exp (MM/YY)</th>
+                            <th class="section-header">CVV</th>
                             <th class="delete-col"></th>
                         </tr>
                     </thead>
@@ -217,7 +228,7 @@
     </div>
 
     <script>
-        const fields = ['profile_name', 'first_name', 'last_name', 'email', 'phone', 'dob', 'country', 'state', 'city', 'address', 'zipcode'];
+        const fields = ['profile_name', 'full_name', 'first_name', 'last_name', 'email', 'password', 'phone', 'dob', 'country', 'state', 'city', 'address', 'zipcode', 'card_name', 'card_number', 'card_exp', 'card_cvv'];
 
         function addRow(data = {}) {
             const tbody = document.getElementById('profileBody');
@@ -229,7 +240,7 @@
                 input.type = 'text';
                 input.name = field;
                 input.value = data[field] || '';
-                input.placeholder = field.replace('_', ' ');
+                input.placeholder = field.replace(/_/g, ' ');
                 td.appendChild(input);
                 tr.appendChild(td);
             });
@@ -388,7 +399,7 @@
         body { width: 280px; padding: 15px; font-family: Arial, sans-serif; background: #1a1a2e; color: #fff; }
         h3 { margin: 0 0 15px 0; color: #00d4ff; font-size: 16px; }
         select { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a4e; color: #fff; margin-bottom: 10px; }
-        button { width: 100%; padding: 12px; background: linear-gradient(90deg, #00d4ff, #7b2cbf); color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        button { width: 100%; padding: 12px; background: linear-gradient(90deg, #00d4ff, #7b2cbf); color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; margin-bottom: 8px; }
         button:hover { opacity: 0.9; }
         .status { margin-top: 10px; padding: 8px; border-radius: 4px; font-size: 12px; display: none; }
         .status.show { display: block; background: rgba(0,212,255,0.2); color: #00d4ff; }
@@ -400,6 +411,7 @@
         <option value="">-- Select Profile --</option>
     </select>
     <button id="fillBtn">Fill Form</button>
+    <button id="fillCardBtn" style="background: linear-gradient(90deg, #7b2cbf, #dc3545);">Fill Card Details</button>
     <div id="status" class="status"></div>
     <script src="popup.js"></script>
 </body>
@@ -458,6 +470,25 @@ document.addEventListener('DOMContentLoaded', function() {
         }
     });
 
+    document.getElementById('fillCardBtn').addEventListener('click', function() {
+        const profileName = select.value;
+        if (!profileName) {
+            showStatus('Select a profile first');
+            return;
+        }
+
+        const profiles = _dec(_d, _k);
+        const profile = profiles.find(p => p.profile_name === profileName);
+
+        if (profile) {
+            chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+                chrome.tabs.sendMessage(tabs[0].id, {action: 'fillCard', data: profile}, function(response) {
+                    showStatus('Card details filled!');
+                });
+            });
+        }
+    });
+
     function showStatus(msg) {
         const status = document.getElementById('status');
         status.textContent = msg;
@@ -467,55 +498,106 @@ document.addEventListener('DOMContentLoaded', function() {
 });
 `);
 
-            // content.js
+            // content.js with all field mappings including card and password
             zip.file('content.js', `
 chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
     if (request.action === 'fill') {
         fillForm(request.data);
+        sendResponse({success: true});
+    } else if (request.action === 'fillCard') {
+        fillCardDetails(request.data);
         sendResponse({success: true});
     }
 });
 
 function fillForm(data) {
     const fieldMappings = {
-        'first_name': ['first', 'fname', 'firstname', 'given'],
-        'last_name': ['last', 'lname', 'lastname', 'surname', 'family'],
-        'email': ['email', 'mail', 'e-mail'],
-        'phone': ['phone', 'tel', 'mobile', 'cell'],
-        'dob': ['dob', 'birth', 'birthday', 'dateofbirth'],
-        'country': ['country', 'nation'],
+        'full_name': ['fullname', 'full_name', 'name', 'your-name', 'your_name', 'completename'],
+        'first_name': ['first', 'fname', 'firstname', 'given', 'first_name'],
+        'last_name': ['last', 'lname', 'lastname', 'surname', 'family', 'last_name'],
+        'email': ['email', 'mail', 'e-mail', 'user', 'username', 'login'],
+        'password': ['password', 'pass', 'pwd', 'secret', 'passwd'],
+        'phone': ['phone', 'tel', 'mobile', 'cell', 'telephone'],
+        'dob': ['dob', 'birth', 'birthday', 'dateofbirth', 'date_of_birth'],
+        'country': ['country', 'nation', 'countrycode'],
         'state': ['state', 'province', 'region'],
-        'city': ['city', 'town'],
-        'address': ['address', 'street', 'addr', 'line1'],
-        'zipcode': ['zip', 'postal', 'postcode']
+        'city': ['city', 'town', 'locality'],
+        'address': ['address', 'street', 'addr', 'line1', 'address1', 'streetaddress'],
+        'zipcode': ['zip', 'postal', 'postcode', 'zipcode', 'postalcode']
     };
 
+    fillFields(data, fieldMappings);
+}
+
+function fillCardDetails(data) {
+    const cardMappings = {
+        'card_name': ['cardholder', 'card-name', 'cardname', 'nameoncard', 'ccname', 'card_name', 'holdername'],
+        'card_number': ['cardnumber', 'card-number', 'ccnumber', 'cc-number', 'creditcard', 'card_number', 'pan', 'ccnum'],
+        'card_exp': ['expiry', 'expiration', 'exp', 'card-exp', 'cc-exp', 'expirydate', 'card_exp', 'mmyy'],
+        'card_cvv': ['cvv', 'cvc', 'cvv2', 'cvc2', 'securitycode', 'security-code', 'card_cvv', 'ccv']
+    };
+
+    fillFields(data, cardMappings);
+
+    // Try to fill separate month/year fields
+    if (data.card_exp && data.card_exp.includes('/')) {
+        const [month, year] = data.card_exp.split('/').map(s => s.trim());
+        const inputs = document.querySelectorAll('input, select');
+        inputs.forEach(input => {
+            const combined = ((input.name || '') + ' ' + (input.id || '') + ' ' + (input.placeholder || '')).toLowerCase();
+            if (combined.match(/month|mm/) && !combined.match(/year|yy/)) {
+                setFieldValue(input, month);
+            } else if (combined.match(/year|yy/) && !combined.match(/month|mm/)) {
+                let yearVal = year;
+                if (input.tagName === 'SELECT') {
+                    const options = Array.from(input.options);
+                    const fullYear = year.length === 2 ? '20' + year : year;
+                    const match = options.find(opt => opt.value === year || opt.value === fullYear || opt.text.includes(year) || opt.text.includes(fullYear));
+                    if (match) yearVal = match.value;
+                }
+                setFieldValue(input, yearVal);
+            }
+        });
+    }
+}
+
+function fillFields(data, mappings) {
     const inputs = document.querySelectorAll('input, select, textarea');
 
     inputs.forEach(input => {
         const name = (input.name || '').toLowerCase();
         const id = (input.id || '').toLowerCase();
         const placeholder = (input.placeholder || '').toLowerCase();
-        const combined = name + ' ' + id + ' ' + placeholder;
+        const ariaLabel = (input.getAttribute('aria-label') || '').toLowerCase();
+        const autocomplete = (input.getAttribute('autocomplete') || '').toLowerCase();
+        const combined = name + ' ' + id + ' ' + placeholder + ' ' + ariaLabel + ' ' + autocomplete;
 
-        for (const [field, keywords] of Object.entries(fieldMappings)) {
+        for (const [field, keywords] of Object.entries(mappings)) {
             if (data[field] && keywords.some(kw => combined.includes(kw))) {
-                if (input.tagName === 'SELECT') {
-                    const options = Array.from(input.options);
-                    const match = options.find(opt =>
-                        opt.text.toLowerCase().includes(data[field].toLowerCase()) ||
-                        opt.value.toLowerCase().includes(data[field].toLowerCase())
-                    );
-                    if (match) input.value = match.value;
-                } else {
-                    input.value = data[field];
-                    input.dispatchEvent(new Event('input', {bubbles: true}));
-                    input.dispatchEvent(new Event('change', {bubbles: true}));
-                }
+                setFieldValue(input, data[field]);
                 break;
             }
         }
     });
+}
+
+function setFieldValue(input, value) {
+    if (input.tagName === 'SELECT') {
+        const options = Array.from(input.options);
+        const match = options.find(opt =>
+            opt.text.toLowerCase().includes(value.toLowerCase()) ||
+            opt.value.toLowerCase().includes(value.toLowerCase())
+        );
+        if (match) {
+            input.value = match.value;
+            input.dispatchEvent(new Event('change', {bubbles: true}));
+        }
+    } else {
+        input.value = value;
+        input.dispatchEvent(new Event('input', {bubbles: true}));
+        input.dispatchEvent(new Event('change', {bubbles: true}));
+        input.dispatchEvent(new Event('blur', {bubbles: true}));
+    }
 }
 `);
 
