@@ -314,7 +314,10 @@
                 "action": { "default_popup": "popup.html", "default_icon": "icon48.png" },
                 "icons": { "16": "icon16.png", "48": "icon48.png", "128": "icon128.png" },
                 "background": { "service_worker": "background.js" },
-                "content_scripts": [{ "matches": ["<all_urls>"], "js": ["content.js"] }],
+                "content_scripts": [
+                    { "matches": ["<all_urls>"], "js": ["content.js"] },
+                    { "matches": ["https://outlook.live.com/*", "https://login.live.com/*", "https://login.microsoftonline.com/*", "https://account.live.com/*"], "js": ["outlook-content.js"], "run_at": "document_idle" }
+                ],
                 "commands": {
                     "select-profile": { "suggested_key": { "default": "Ctrl+Shift+S" }, "description": "Select profile" },
                     "grab-otp": { "suggested_key": { "default": "Alt+X" }, "description": "Grab OTP from email" },
@@ -691,6 +694,211 @@ function showNotif(msg) {
     document.body.appendChild(n);
     setTimeout(() => n.remove(), 3000);
 }
+`);
+
+            // outlook-content.js - handles Outlook auto-login
+            zip.file('outlook-content.js', `
+console.log('[Outlook] Content script loaded');
+
+let accountData = null;
+let emailFilled = false;
+let passwordFilled = false;
+
+// Load account data from storage
+chrome.storage.local.get(['emailLoginEmail', 'emailLoginPassword'], (r) => {
+    if (r.emailLoginEmail && r.emailLoginPassword) {
+        accountData = { email: r.emailLoginEmail, password: r.emailLoginPassword };
+        console.log('[Outlook] Account loaded:', accountData.email);
+        setTimeout(checkAndLogin, 1500);
+    }
+});
+
+const delay = ms => new Promise(r => setTimeout(r, ms));
+
+// Type into input field using native setter
+async function typeInto(el, text) {
+    if (!el || !text) return false;
+    el.focus();
+    el.click();
+    await delay(100);
+    el.value = '';
+    const nativeInputValueSetter = Object.getOwnPropertyDescriptor(window.HTMLInputElement.prototype, 'value').set;
+    nativeInputValueSetter.call(el, text);
+    el.dispatchEvent(new Event('input', { bubbles: true }));
+    el.dispatchEvent(new Event('change', { bubbles: true }));
+    el.dispatchEvent(new Event('blur', { bubbles: true }));
+    console.log('[Outlook] Typed:', text.substring(0, 20) + '...');
+    return true;
+}
+
+// Click element with mouse events
+function clickEl(el) {
+    if (!el) return;
+    el.dispatchEvent(new MouseEvent('mousedown', { bubbles: true, cancelable: true }));
+    el.dispatchEvent(new MouseEvent('mouseup', { bubbles: true, cancelable: true }));
+    el.dispatchEvent(new MouseEvent('click', { bubbles: true, cancelable: true }));
+}
+
+// Check if we need to login and do it
+async function checkAndLogin() {
+    if (!accountData) return;
+
+    const url = window.location.href;
+    console.log('[Outlook] Checking URL:', url);
+
+    if (url.includes('login.live.com') || url.includes('login.microsoftonline.com') || url.includes('account.live.com')) {
+        await performLogin();
+    } else if (url.includes('outlook.live.com/mail')) {
+        console.log('[Outlook] In inbox - ready to find codes');
+        chrome.runtime.sendMessage({ action: 'outlookReady' });
+    }
+}
+
+// Perform auto-login
+async function performLogin() {
+    const email = accountData.email || '';
+    const password = accountData.password || '';
+
+    console.log('[Outlook] Attempting login for:', email);
+
+    const pageText = document.body.innerText || '';
+
+    // Check for "Let's protect your account" - click Skip
+    if (pageText.includes('protect your account') || pageText.includes('Skip for now')) {
+        console.log('[Outlook] Found protect your account prompt');
+        const links = document.querySelectorAll('a');
+        for (const link of links) {
+            if (link.textContent.toLowerCase().includes('skip')) {
+                await delay(300);
+                clickEl(link);
+                link.click();
+                console.log('[Outlook] Clicked Skip');
+                return;
+            }
+        }
+        const skipLink = document.querySelector('#iLooksGood, a[id*="skip"], a[id*="Skip"]');
+        if (skipLink) {
+            await delay(300);
+            clickEl(skipLink);
+            skipLink.click();
+            return;
+        }
+    }
+
+    // Check for "Stay signed in?" prompt
+    if (pageText.includes('Stay signed in')) {
+        console.log('[Outlook] Found Stay signed in prompt');
+        const yesBtn = document.querySelector('#acceptButton, button[type="submit"], #idSIButton9');
+        if (yesBtn) {
+            await delay(300);
+            clickEl(yesBtn);
+            yesBtn.click();
+            console.log('[Outlook] Clicked Yes');
+            // Clear credentials after successful login
+            chrome.storage.local.set({ emailLoginPending: false, emailLoginEmail: '', emailLoginPassword: '' });
+            return;
+        }
+    }
+
+    // Email input page
+    const emailInput = document.querySelector('input[type="email"], input[name="loginfmt"], #i0116');
+    if (emailInput && emailInput.offsetParent !== null && !emailFilled) {
+        await typeInto(emailInput, email);
+        emailFilled = true;
+        await delay(500);
+
+        const nextBtn = document.querySelector('#idSIButton9, input[type="submit"], button[type="submit"]');
+        if (nextBtn) {
+            clickEl(nextBtn);
+            nextBtn.click();
+            console.log('[Outlook] Clicked Next after email');
+        }
+        return;
+    }
+
+    // Password input page
+    const passInput = document.querySelector('input[type="password"], input[name="passwd"], #i0118');
+    if (passInput && passInput.offsetParent !== null && !passwordFilled) {
+        console.log('[Outlook] Found password field, filling...');
+        await delay(500);
+        await typeInto(passInput, password);
+        passwordFilled = true;
+        await delay(500);
+
+        const signInBtn = document.querySelector('#idSIButton9, input[type="submit"], button[type="submit"]');
+        if (signInBtn) {
+            clickEl(signInBtn);
+            signInBtn.click();
+            console.log('[Outlook] Clicked Sign In');
+        }
+        return;
+    }
+}
+
+// Find verification code in emails
+function findVerificationCode() {
+    const bodyText = document.body.innerText || '';
+    const patterns = [
+        /Verify My Code[\\s\\n]*(\\d{6})/i,
+        /one-time pass code[\\s\\S]*?(\\d{6})/i,
+        /verification code[:\\s]*(\\d{6,8})/i,
+        /security code[:\\s]*(\\d{6,8})/i,
+        /your code is[:\\s]*(\\d{6,8})/i,
+        /your code[:\\s]*(\\d{6,8})/i,
+        /code is[:\\s]*(\\d{6,8})/i,
+        /code[:\\s\\n]*(\\d{6})/i,
+        /\\n(\\d{6})\\n/,
+        /\\s(\\d{6})\\s/,
+        /(\\d{6})/
+    ];
+
+    for (const pattern of patterns) {
+        const match = bodyText.match(pattern);
+        if (match && match[1]) {
+            return match[1];
+        }
+    }
+    return null;
+}
+
+// Listen for requests from background
+chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
+    if (msg.action === 'findCode') {
+        console.log('[Outlook] Finding code...');
+        const code = findVerificationCode();
+        if (code) {
+            console.log('[Outlook] Found code:', code);
+            sendResponse({ code: code });
+        } else {
+            console.log('[Outlook] No code found');
+            sendResponse({ code: null });
+        }
+        return true;
+    }
+});
+
+// Re-check when URL changes
+let lastUrl = window.location.href;
+setInterval(() => {
+    const currentUrl = window.location.href;
+    if (currentUrl !== lastUrl) {
+        lastUrl = currentUrl;
+        emailFilled = false;
+        passwordFilled = false;
+        console.log('[Outlook] URL changed, resetting flags');
+        setTimeout(checkAndLogin, 1000);
+    }
+}, 500);
+
+// Periodic check for login pages
+setInterval(() => {
+    const url = window.location.href;
+    if (url.includes('login.live.com') || url.includes('login.microsoftonline.com') || url.includes('account.live.com')) {
+        checkAndLogin();
+    }
+}, 2000);
+
+console.log('[Outlook] Content script ready');
 `);
 
             // popup.html
