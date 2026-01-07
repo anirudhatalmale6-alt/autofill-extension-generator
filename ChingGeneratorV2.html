@@ -484,7 +484,157 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
     if (request.action === 'fill') fillForm(request.data);
     if (request.action === 'fillCard') fillCardDetails(request.data);
     if (request.action === 'fillOTP') fillOTP(request.otp);
+    if (request.action === 'solveCaptcha') solveFifaCaptcha();
 });
+
+// Auto-detect and solve FIFA CAPTCHA
+if (location.href.includes('fifa.com') || location.href.includes('tickets.fifa.com')) {
+    setTimeout(() => {
+        const captchaImg = document.querySelector('img[src*="captcha"], img[alt*="captcha"], .captcha img, img[src*="Captcha"]');
+        if (captchaImg) {
+            console.log('[Ching] FIFA CAPTCHA detected, attempting to solve...');
+            solveFifaCaptcha();
+        }
+    }, 2000);
+}
+
+// Solve FIFA CAPTCHA - reads 7-segment display numbers
+function solveFifaCaptcha() {
+    console.log('[Ching] Solving CAPTCHA...');
+
+    // Find the CAPTCHA image
+    const captchaImg = document.querySelector('img[src*="captcha"], img[src*="Captcha"], .captcha-image img, img[alt*="captcha"]') ||
+                       document.querySelector('img[src*="random"], img[class*="captcha"]') ||
+                       Array.from(document.querySelectorAll('img')).find(img => {
+                           const src = img.src || '';
+                           return src.includes('captcha') || (img.width > 50 && img.width < 200 && img.height > 20 && img.height < 80);
+                       });
+
+    if (!captchaImg) {
+        console.log('[Ching] No CAPTCHA image found');
+        return;
+    }
+
+    console.log('[Ching] Found CAPTCHA image:', captchaImg.src);
+
+    // Create canvas to analyze the image
+    const canvas = document.createElement('canvas');
+    const ctx = canvas.getContext('2d');
+    canvas.width = captchaImg.naturalWidth || captchaImg.width;
+    canvas.height = captchaImg.naturalHeight || captchaImg.height;
+
+    try {
+        ctx.drawImage(captchaImg, 0, 0);
+        const imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+        const code = recognizeDigits(imageData, canvas.width, canvas.height);
+
+        if (code && code.length >= 4) {
+            console.log('[Ching] Recognized CAPTCHA:', code);
+
+            // Find the input field and fill it
+            const captchaInput = document.querySelector('input[name*="captcha"], input[id*="captcha"], input[placeholder*="character"], input[type="text"][maxlength="4"], input[type="text"][maxlength="5"], input[type="text"][maxlength="6"]') ||
+                                document.querySelector('input[type="text"]');
+
+            if (captchaInput) {
+                captchaInput.value = code;
+                captchaInput.dispatchEvent(new Event('input', { bubbles: true }));
+                captchaInput.dispatchEvent(new Event('change', { bubbles: true }));
+                showNotif('CAPTCHA filled: ' + code);
+
+                // Auto-click submit after small delay
+                setTimeout(() => {
+                    const submitBtn = document.querySelector('button[type="submit"], input[type="submit"], button:contains("SUBMIT"), .submit-btn') ||
+                                     Array.from(document.querySelectorAll('button')).find(b => b.textContent.toLowerCase().includes('submit'));
+                    if (submitBtn) submitBtn.click();
+                }, 500);
+            }
+        } else {
+            console.log('[Ching] Could not recognize CAPTCHA');
+            showNotif('Could not read CAPTCHA - try refreshing');
+        }
+    } catch (e) {
+        console.log('[Ching] CAPTCHA error (cross-origin?):', e);
+        showNotif('Cannot read CAPTCHA image');
+    }
+}
+
+// Simple 7-segment digit recognition
+function recognizeDigits(imageData, width, height) {
+    const data = imageData.data;
+    let result = '';
+
+    // Convert to grayscale and find bright pixels (the LED display)
+    const threshold = 100;
+    const brightPixels = [];
+
+    for (let y = 0; y < height; y++) {
+        for (let x = 0; x < width; x++) {
+            const i = (y * width + x) * 4;
+            const r = data[i], g = data[i+1], b = data[i+2];
+            // Look for bright green/yellow pixels (7-segment display)
+            if (g > threshold && (g > r * 0.8 || r > threshold)) {
+                brightPixels.push({x, y});
+            }
+        }
+    }
+
+    if (brightPixels.length === 0) return null;
+
+    // Find digit boundaries by looking for gaps
+    const xCoords = brightPixels.map(p => p.x).sort((a,b) => a-b);
+    const minX = xCoords[0];
+    const maxX = xCoords[xCoords.length - 1];
+    const digitWidth = (maxX - minX) / 4; // Assume 4 digits
+
+    // For each digit position, analyze the pattern
+    for (let d = 0; d < 4; d++) {
+        const startX = minX + d * digitWidth;
+        const endX = startX + digitWidth;
+
+        const digitPixels = brightPixels.filter(p => p.x >= startX && p.x < endX);
+        if (digitPixels.length === 0) continue;
+
+        const digit = recognizeSingleDigit(digitPixels, digitWidth, height);
+        result += digit;
+    }
+
+    return result;
+}
+
+function recognizeSingleDigit(pixels, width, height) {
+    if (pixels.length === 0) return '8';
+
+    const minY = Math.min(...pixels.map(p => p.y));
+    const maxY = Math.max(...pixels.map(p => p.y));
+    const minX = Math.min(...pixels.map(p => p.x));
+    const maxX = Math.max(...pixels.map(p => p.x));
+
+    const midY = (minY + maxY) / 2;
+    const midX = (minX + maxX) / 2;
+
+    // Check which segments are lit
+    const hasTop = pixels.some(p => p.y < minY + (maxY-minY)*0.2);
+    const hasBottom = pixels.some(p => p.y > maxY - (maxY-minY)*0.2);
+    const hasMiddle = pixels.some(p => Math.abs(p.y - midY) < (maxY-minY)*0.15);
+    const hasTopLeft = pixels.some(p => p.x < midX && p.y < midY);
+    const hasTopRight = pixels.some(p => p.x > midX && p.y < midY);
+    const hasBottomLeft = pixels.some(p => p.x < midX && p.y > midY);
+    const hasBottomRight = pixels.some(p => p.x > midX && p.y > midY);
+
+    // Match patterns to digits
+    if (!hasMiddle && hasTop && hasBottom) return '0';
+    if (!hasTop && !hasBottom && !hasMiddle && hasTopRight && hasBottomRight) return '1';
+    if (hasTop && hasTopRight && hasMiddle && hasBottomLeft && hasBottom) return '2';
+    if (hasTop && hasMiddle && hasBottom && hasTopRight && hasBottomRight) return '3';
+    if (hasTopLeft && hasMiddle && hasTopRight && hasBottomRight && !hasBottom) return '4';
+    if (hasTop && hasTopLeft && hasMiddle && hasBottomRight && hasBottom) return '5';
+    if (hasTop && hasTopLeft && hasMiddle && hasBottomLeft && hasBottomRight && hasBottom) return '6';
+    if (hasTop && hasTopRight && hasBottomRight) return '7';
+    if (hasTop && hasMiddle && hasBottom) return '8';
+    if (hasTop && hasTopLeft && hasTopRight && hasMiddle && hasBottomRight && hasBottom) return '9';
+
+    return '8'; // Default fallback
+}
 
 // Check for pending email login
 if (location.href.includes('accounts.google.com') || location.href.includes('login.live.com') || location.href.includes('login.microsoftonline.com')) {
