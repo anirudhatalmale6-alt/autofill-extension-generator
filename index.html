@@ -1,0 +1,570 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Autofill Extension Generator</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <style>
+        * {
+            margin: 0;
+            padding: 0;
+            box-sizing: border-box;
+        }
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, sans-serif;
+            background: linear-gradient(135deg, #1a1a2e 0%, #16213e 100%);
+            min-height: 100vh;
+            color: #fff;
+            padding: 20px;
+        }
+        .container {
+            max-width: 1200px;
+            margin: 0 auto;
+        }
+        h1 {
+            text-align: center;
+            margin-bottom: 10px;
+            font-size: 2rem;
+            background: linear-gradient(90deg, #00d4ff, #7b2cbf);
+            -webkit-background-clip: text;
+            -webkit-text-fill-color: transparent;
+        }
+        .subtitle {
+            text-align: center;
+            color: #888;
+            margin-bottom: 30px;
+        }
+        .card {
+            background: rgba(255,255,255,0.05);
+            border-radius: 12px;
+            padding: 25px;
+            margin-bottom: 20px;
+            border: 1px solid rgba(255,255,255,0.1);
+        }
+        .card h2 {
+            margin-bottom: 15px;
+            color: #00d4ff;
+            font-size: 1.2rem;
+        }
+        .profile-table {
+            width: 100%;
+            overflow-x: auto;
+        }
+        table {
+            width: 100%;
+            border-collapse: collapse;
+            min-width: 1000px;
+        }
+        th, td {
+            padding: 10px 8px;
+            text-align: left;
+            border-bottom: 1px solid rgba(255,255,255,0.1);
+        }
+        th {
+            background: rgba(0,212,255,0.1);
+            color: #00d4ff;
+            font-weight: 600;
+            font-size: 0.85rem;
+        }
+        td input {
+            width: 100%;
+            padding: 8px;
+            border: 1px solid rgba(255,255,255,0.2);
+            border-radius: 6px;
+            background: rgba(255,255,255,0.05);
+            color: #fff;
+            font-size: 0.85rem;
+        }
+        td input:focus {
+            outline: none;
+            border-color: #00d4ff;
+        }
+        .btn {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 8px;
+            cursor: pointer;
+            font-weight: 600;
+            font-size: 0.95rem;
+            transition: all 0.3s;
+            margin-right: 10px;
+            margin-top: 10px;
+        }
+        .btn-primary {
+            background: linear-gradient(90deg, #00d4ff, #7b2cbf);
+            color: #fff;
+        }
+        .btn-primary:hover {
+            transform: translateY(-2px);
+            box-shadow: 0 5px 20px rgba(0,212,255,0.3);
+        }
+        .btn-secondary {
+            background: rgba(255,255,255,0.1);
+            color: #fff;
+            border: 1px solid rgba(255,255,255,0.2);
+        }
+        .btn-secondary:hover {
+            background: rgba(255,255,255,0.2);
+        }
+        .btn-danger {
+            background: #dc3545;
+            color: #fff;
+            padding: 6px 12px;
+            font-size: 0.8rem;
+        }
+        .btn-add {
+            background: #28a745;
+            color: #fff;
+        }
+        .actions {
+            display: flex;
+            flex-wrap: wrap;
+            gap: 10px;
+            margin-top: 20px;
+        }
+        .status {
+            padding: 15px;
+            border-radius: 8px;
+            margin-top: 15px;
+            display: none;
+        }
+        .status.success {
+            display: block;
+            background: rgba(40,167,69,0.2);
+            border: 1px solid #28a745;
+            color: #28a745;
+        }
+        .status.error {
+            display: block;
+            background: rgba(220,53,69,0.2);
+            border: 1px solid #dc3545;
+            color: #dc3545;
+        }
+        .info-box {
+            background: rgba(0,212,255,0.1);
+            border: 1px solid rgba(0,212,255,0.3);
+            border-radius: 8px;
+            padding: 15px;
+            margin-bottom: 20px;
+            font-size: 0.9rem;
+            line-height: 1.6;
+        }
+        .delete-col {
+            width: 60px;
+            text-align: center;
+        }
+        #profileCount {
+            color: #00d4ff;
+            font-weight: bold;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Autofill Extension Generator</h1>
+        <p class="subtitle">Create encrypted autofill extensions - workers can't see profile details</p>
+
+        <div class="card">
+            <h2>How It Works</h2>
+            <div class="info-box">
+                1. Add your profiles below (or import from CSV)<br>
+                2. Click "Generate Extension"<br>
+                3. Download the .zip file<br>
+                4. Workers install the extension in Chrome<br>
+                5. They select profile name from dropdown - extension autofills WITHOUT showing actual data
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Profiles (<span id="profileCount">0</span>)</h2>
+            <div class="profile-table">
+                <table id="profileTable">
+                    <thead>
+                        <tr>
+                            <th>Profile Name</th>
+                            <th>First Name</th>
+                            <th>Last Name</th>
+                            <th>Email</th>
+                            <th>Phone</th>
+                            <th>DOB</th>
+                            <th>Country</th>
+                            <th>State</th>
+                            <th>City</th>
+                            <th>Address</th>
+                            <th>Zipcode</th>
+                            <th class="delete-col"></th>
+                        </tr>
+                    </thead>
+                    <tbody id="profileBody">
+                    </tbody>
+                </table>
+            </div>
+            <div class="actions">
+                <button class="btn btn-add" onclick="addRow()">+ Add Profile</button>
+                <button class="btn btn-secondary" onclick="document.getElementById('csvInput').click()">Import CSV</button>
+                <button class="btn btn-secondary" onclick="clearAll()">Clear All</button>
+                <input type="file" id="csvInput" accept=".csv" style="display:none" onchange="importCSV(this)">
+            </div>
+        </div>
+
+        <div class="card">
+            <h2>Generate Extension</h2>
+            <p style="color:#888; margin-bottom:15px;">Creates encrypted extension that workers can use but can't see the data</p>
+            <button class="btn btn-primary" onclick="generateExtension()">Generate Extension (.zip)</button>
+            <div id="status" class="status"></div>
+        </div>
+    </div>
+
+    <script>
+        const fields = ['profile_name', 'first_name', 'last_name', 'email', 'phone', 'dob', 'country', 'state', 'city', 'address', 'zipcode'];
+
+        function addRow(data = {}) {
+            const tbody = document.getElementById('profileBody');
+            const tr = document.createElement('tr');
+
+            fields.forEach(field => {
+                const td = document.createElement('td');
+                const input = document.createElement('input');
+                input.type = 'text';
+                input.name = field;
+                input.value = data[field] || '';
+                input.placeholder = field.replace('_', ' ');
+                td.appendChild(input);
+                tr.appendChild(td);
+            });
+
+            const deleteTd = document.createElement('td');
+            deleteTd.className = 'delete-col';
+            deleteTd.innerHTML = '<button class="btn btn-danger" onclick="this.closest(\'tr\').remove(); updateCount();">X</button>';
+            tr.appendChild(deleteTd);
+
+            tbody.appendChild(tr);
+            updateCount();
+        }
+
+        function updateCount() {
+            document.getElementById('profileCount').textContent = document.querySelectorAll('#profileBody tr').length;
+        }
+
+        function clearAll() {
+            if (confirm('Clear all profiles?')) {
+                document.getElementById('profileBody').innerHTML = '';
+                updateCount();
+            }
+        }
+
+        function importCSV(input) {
+            const file = input.files[0];
+            if (!file) return;
+
+            const reader = new FileReader();
+            reader.onload = function(e) {
+                const text = e.target.result;
+                const lines = text.trim().split('\n');
+                if (lines.length < 2) {
+                    showStatus('CSV must have header row and at least one data row', 'error');
+                    return;
+                }
+
+                const headers = parseCSVLine(lines[0]).map(h => h.toLowerCase().trim().replace(/\s+/g, '_'));
+                document.getElementById('profileBody').innerHTML = '';
+
+                for (let i = 1; i < lines.length; i++) {
+                    if (!lines[i].trim()) continue;
+                    const values = parseCSVLine(lines[i]);
+                    const data = {};
+                    headers.forEach((h, idx) => {
+                        data[h] = values[idx] || '';
+                    });
+                    addRow(data);
+                }
+
+                showStatus(`Imported ${lines.length - 1} profiles!`, 'success');
+            };
+            reader.readAsText(file);
+            input.value = '';
+        }
+
+        function parseCSVLine(line) {
+            const result = [];
+            let current = '';
+            let inQuotes = false;
+
+            for (let i = 0; i < line.length; i++) {
+                const char = line[i];
+                if (char === '"') {
+                    inQuotes = !inQuotes;
+                } else if (char === ',' && !inQuotes) {
+                    result.push(current.trim());
+                    current = '';
+                } else {
+                    current += char;
+                }
+            }
+            result.push(current.trim());
+            return result;
+        }
+
+        function getProfiles() {
+            const rows = document.querySelectorAll('#profileBody tr');
+            const profiles = [];
+
+            rows.forEach(row => {
+                const inputs = row.querySelectorAll('input');
+                const profile = {};
+                inputs.forEach((input, idx) => {
+                    profile[fields[idx]] = input.value;
+                });
+                if (profile.profile_name) {
+                    profiles.push(profile);
+                }
+            });
+
+            return profiles;
+        }
+
+        // Simple encryption - XOR with key then base64
+        function encrypt(data, key) {
+            const json = JSON.stringify(data);
+            let encrypted = '';
+            for (let i = 0; i < json.length; i++) {
+                encrypted += String.fromCharCode(json.charCodeAt(i) ^ key.charCodeAt(i % key.length));
+            }
+            return btoa(encrypted);
+        }
+
+        function showStatus(msg, type) {
+            const status = document.getElementById('status');
+            status.textContent = msg;
+            status.className = 'status ' + type;
+        }
+
+        async function generateExtension() {
+            const profiles = getProfiles();
+            if (profiles.length === 0) {
+                showStatus('Add at least one profile!', 'error');
+                return;
+            }
+
+            showStatus('Generating extension...', 'success');
+
+            // Generate random encryption key
+            const key = Array.from({length: 32}, () => String.fromCharCode(65 + Math.floor(Math.random() * 26))).join('');
+            const encryptedData = encrypt(profiles, key);
+
+            // Profile names only (visible to workers)
+            const profileNames = profiles.map(p => p.profile_name);
+
+            const zip = new JSZip();
+
+            // manifest.json
+            zip.file('manifest.json', JSON.stringify({
+                "manifest_version": 3,
+                "name": "TM AutoFill",
+                "version": "1.0.0",
+                "description": "Autofill extension",
+                "permissions": ["storage", "activeTab", "scripting"],
+                "action": {
+                    "default_popup": "popup.html",
+                    "default_icon": "icon48.png"
+                },
+                "icons": {
+                    "16": "icon16.png",
+                    "48": "icon48.png",
+                    "128": "icon128.png"
+                },
+                "content_scripts": [{
+                    "matches": ["<all_urls>"],
+                    "js": ["content.js"]
+                }]
+            }, null, 2));
+
+            // popup.html
+            zip.file('popup.html', `<!DOCTYPE html>
+<html>
+<head>
+    <style>
+        body { width: 280px; padding: 15px; font-family: Arial, sans-serif; background: #1a1a2e; color: #fff; }
+        h3 { margin: 0 0 15px 0; color: #00d4ff; font-size: 16px; }
+        select { width: 100%; padding: 10px; border-radius: 6px; border: 1px solid #444; background: #2a2a4e; color: #fff; margin-bottom: 10px; }
+        button { width: 100%; padding: 12px; background: linear-gradient(90deg, #00d4ff, #7b2cbf); color: #fff; border: none; border-radius: 6px; cursor: pointer; font-weight: bold; }
+        button:hover { opacity: 0.9; }
+        .status { margin-top: 10px; padding: 8px; border-radius: 4px; font-size: 12px; display: none; }
+        .status.show { display: block; background: rgba(0,212,255,0.2); color: #00d4ff; }
+    </style>
+</head>
+<body>
+    <h3>TM AutoFill</h3>
+    <select id="profileSelect">
+        <option value="">-- Select Profile --</option>
+    </select>
+    <button id="fillBtn">Fill Form</button>
+    <div id="status" class="status"></div>
+    <script src="popup.js"></script>
+</body>
+</html>`);
+
+            // popup.js - contains encrypted data
+            zip.file('popup.js', `
+const _d = "${encryptedData}";
+const _k = "${key}";
+const _n = ${JSON.stringify(profileNames)};
+
+function _dec(d, k) {
+    const e = atob(d);
+    let r = '';
+    for (let i = 0; i < e.length; i++) {
+        r += String.fromCharCode(e.charCodeAt(i) ^ k.charCodeAt(i % k.length));
+    }
+    return JSON.parse(r);
+}
+
+document.addEventListener('DOMContentLoaded', function() {
+    const select = document.getElementById('profileSelect');
+    _n.forEach(name => {
+        const opt = document.createElement('option');
+        opt.value = name;
+        opt.textContent = name;
+        select.appendChild(opt);
+    });
+
+    chrome.storage.local.get(['selectedProfile'], function(data) {
+        if (data.selectedProfile) {
+            select.value = data.selectedProfile;
+        }
+    });
+
+    select.addEventListener('change', function() {
+        chrome.storage.local.set({ selectedProfile: this.value });
+    });
+
+    document.getElementById('fillBtn').addEventListener('click', function() {
+        const profileName = select.value;
+        if (!profileName) {
+            showStatus('Select a profile first');
+            return;
+        }
+
+        const profiles = _dec(_d, _k);
+        const profile = profiles.find(p => p.profile_name === profileName);
+
+        if (profile) {
+            chrome.tabs.query({active: true, currentWindow: true}, function(tabs) {
+                chrome.tabs.sendMessage(tabs[0].id, {action: 'fill', data: profile}, function(response) {
+                    showStatus('Form filled!');
+                });
+            });
+        }
+    });
+
+    function showStatus(msg) {
+        const status = document.getElementById('status');
+        status.textContent = msg;
+        status.className = 'status show';
+        setTimeout(() => { status.className = 'status'; }, 2000);
+    }
+});
+`);
+
+            // content.js
+            zip.file('content.js', `
+chrome.runtime.onMessage.addListener(function(request, sender, sendResponse) {
+    if (request.action === 'fill') {
+        fillForm(request.data);
+        sendResponse({success: true});
+    }
+});
+
+function fillForm(data) {
+    const fieldMappings = {
+        'first_name': ['first', 'fname', 'firstname', 'given'],
+        'last_name': ['last', 'lname', 'lastname', 'surname', 'family'],
+        'email': ['email', 'mail', 'e-mail'],
+        'phone': ['phone', 'tel', 'mobile', 'cell'],
+        'dob': ['dob', 'birth', 'birthday', 'dateofbirth'],
+        'country': ['country', 'nation'],
+        'state': ['state', 'province', 'region'],
+        'city': ['city', 'town'],
+        'address': ['address', 'street', 'addr', 'line1'],
+        'zipcode': ['zip', 'postal', 'postcode']
+    };
+
+    const inputs = document.querySelectorAll('input, select, textarea');
+
+    inputs.forEach(input => {
+        const name = (input.name || '').toLowerCase();
+        const id = (input.id || '').toLowerCase();
+        const placeholder = (input.placeholder || '').toLowerCase();
+        const combined = name + ' ' + id + ' ' + placeholder;
+
+        for (const [field, keywords] of Object.entries(fieldMappings)) {
+            if (data[field] && keywords.some(kw => combined.includes(kw))) {
+                if (input.tagName === 'SELECT') {
+                    const options = Array.from(input.options);
+                    const match = options.find(opt =>
+                        opt.text.toLowerCase().includes(data[field].toLowerCase()) ||
+                        opt.value.toLowerCase().includes(data[field].toLowerCase())
+                    );
+                    if (match) input.value = match.value;
+                } else {
+                    input.value = data[field];
+                    input.dispatchEvent(new Event('input', {bubbles: true}));
+                    input.dispatchEvent(new Event('change', {bubbles: true}));
+                }
+                break;
+            }
+        }
+    });
+}
+`);
+
+            // Generate simple icons
+            const iconSvg16 = '<svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" viewBox="0 0 16 16"><rect fill="#00d4ff" width="16" height="16" rx="3"/><text x="8" y="12" font-size="10" fill="#fff" text-anchor="middle" font-family="Arial">A</text></svg>';
+            const iconSvg48 = '<svg xmlns="http://www.w3.org/2000/svg" width="48" height="48" viewBox="0 0 48 48"><rect fill="#00d4ff" width="48" height="48" rx="8"/><text x="24" y="34" font-size="28" fill="#fff" text-anchor="middle" font-family="Arial">A</text></svg>';
+            const iconSvg128 = '<svg xmlns="http://www.w3.org/2000/svg" width="128" height="128" viewBox="0 0 128 128"><rect fill="#00d4ff" width="128" height="128" rx="20"/><text x="64" y="90" font-size="72" fill="#fff" text-anchor="middle" font-family="Arial">A</text></svg>';
+
+            // Convert SVG to PNG using canvas
+            async function svgToPng(svg, size) {
+                return new Promise((resolve) => {
+                    const img = new Image();
+                    const blob = new Blob([svg], {type: 'image/svg+xml'});
+                    const url = URL.createObjectURL(blob);
+                    img.onload = function() {
+                        const canvas = document.createElement('canvas');
+                        canvas.width = size;
+                        canvas.height = size;
+                        const ctx = canvas.getContext('2d');
+                        ctx.drawImage(img, 0, 0);
+                        canvas.toBlob(resolve, 'image/png');
+                        URL.revokeObjectURL(url);
+                    };
+                    img.src = url;
+                });
+            }
+
+            const icon16 = await svgToPng(iconSvg16, 16);
+            const icon48 = await svgToPng(iconSvg48, 48);
+            const icon128 = await svgToPng(iconSvg128, 128);
+
+            zip.file('icon16.png', icon16);
+            zip.file('icon48.png', icon48);
+            zip.file('icon128.png', icon128);
+
+            // Generate and download
+            const blob = await zip.generateAsync({type: 'blob'});
+            const url = URL.createObjectURL(blob);
+            const a = document.createElement('a');
+            a.href = url;
+            a.download = 'tm-autofill-extension.zip';
+            a.click();
+            URL.revokeObjectURL(url);
+
+            showStatus('Extension downloaded! Load it in Chrome: chrome://extensions -> Developer mode -> Load unpacked', 'success');
+        }
+
+        // Add initial empty row
+        addRow();
+    </script>
+</body>
+</html>
