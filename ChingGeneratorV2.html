@@ -464,10 +464,12 @@ chrome.runtime.onMessage.addListener((msg, sender, sendResponse) => {
     if (msg.action === 'getEmailCreds') {
         chrome.storage.local.get(['emailLoginPending', 'emailLoginEmail', 'emailLoginPassword'], (result) => {
             sendResponse(result);
-            if (result.emailLoginPending) {
-                chrome.storage.local.set({ emailLoginPending: false });
-            }
         });
+        return true;
+    }
+    if (msg.action === 'clearEmailCreds') {
+        chrome.storage.local.set({ emailLoginPending: false, emailLoginEmail: '', emailLoginPassword: '' });
+        sendResponse({ success: true });
         return true;
     }
 });
@@ -485,7 +487,7 @@ chrome.runtime.onMessage.addListener((request, sender, sendResponse) => {
 if (location.href.includes('accounts.google.com') || location.href.includes('login.live.com') || location.href.includes('login.microsoftonline.com')) {
     setTimeout(() => {
         chrome.runtime.sendMessage({ action: 'getEmailCreds' }, (result) => {
-            if (result && result.emailLoginPending) {
+            if (result && (result.emailLoginPending || result.emailLoginEmail)) {
                 autoLoginEmail(result.emailLoginEmail, result.emailLoginPassword);
             }
         });
@@ -498,20 +500,23 @@ function autoLoginEmail(email, password) {
     // Gmail login
     if (location.href.includes('accounts.google.com')) {
         const emailInput = document.querySelector('input[type="email"]');
-        if (emailInput) {
+        if (emailInput && emailInput.offsetParent !== null) {
             setVal(emailInput, email);
             setTimeout(() => {
                 const nextBtn = document.querySelector('#identifierNext') || document.querySelector('button[type="submit"]');
                 if (nextBtn) nextBtn.click();
             }, 500);
+            return;
         }
         // Password step (on next page load)
         const pwdInput = document.querySelector('input[type="password"]');
-        if (pwdInput) {
+        if (pwdInput && pwdInput.offsetParent !== null) {
             setVal(pwdInput, password);
             setTimeout(() => {
                 const nextBtn = document.querySelector('#passwordNext') || document.querySelector('button[type="submit"]');
                 if (nextBtn) nextBtn.click();
+                // Clear creds after password filled
+                chrome.runtime.sendMessage({ action: 'clearEmailCreds' });
             }, 500);
         }
     }
@@ -519,16 +524,23 @@ function autoLoginEmail(email, password) {
     // Outlook/Hotmail login
     if (location.href.includes('login.live.com') || location.href.includes('login.microsoftonline.com')) {
         const emailInput = document.querySelector('input[type="email"]') || document.querySelector('input[name="loginfmt"]');
-        if (emailInput && !emailInput.value) {
-            setVal(emailInput, email);
+        const pwdInput = document.querySelector('input[type="password"]') || document.querySelector('input[name="passwd"]');
+
+        // If password field is visible, fill password
+        if (pwdInput && pwdInput.offsetParent !== null) {
+            setVal(pwdInput, password);
             setTimeout(() => {
                 const nextBtn = document.querySelector('input[type="submit"]') || document.querySelector('#idSIButton9');
                 if (nextBtn) nextBtn.click();
+                // Clear creds after password filled
+                chrome.runtime.sendMessage({ action: 'clearEmailCreds' });
             }, 500);
+            return;
         }
-        const pwdInput = document.querySelector('input[type="password"]') || document.querySelector('input[name="passwd"]');
-        if (pwdInput && !pwdInput.value) {
-            setVal(pwdInput, password);
+
+        // If email field is visible, fill email
+        if (emailInput && emailInput.offsetParent !== null && !emailInput.value) {
+            setVal(emailInput, email);
             setTimeout(() => {
                 const nextBtn = document.querySelector('input[type="submit"]') || document.querySelector('#idSIButton9');
                 if (nextBtn) nextBtn.click();
