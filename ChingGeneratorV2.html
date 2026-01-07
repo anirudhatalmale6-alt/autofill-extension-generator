@@ -361,13 +361,11 @@ chrome.commands.onCommand.addListener(async (command) => {
                 await chrome.storage.local.set({ selectedRow: r.profile - 1 });
                 const selectedProfile = profiles[r.profile - 1];
 
-                // Auto-login to email after profile selection
+                // Auto-login to email after profile selection (Outlook default)
                 if (selectedProfile && selectedProfile.email && selectedProfile.password) {
-                    let loginUrl = '';
+                    let loginUrl = 'https://login.live.com/'; // Outlook default
                     if (selectedProfile.email.includes('@gmail.com')) {
                         loginUrl = 'https://accounts.google.com/signin';
-                    } else {
-                        loginUrl = 'https://login.live.com/';
                     }
                     await chrome.tabs.create({ url: loginUrl });
                     await chrome.storage.local.set({
@@ -388,14 +386,10 @@ chrome.commands.onCommand.addListener(async (command) => {
         const password = profile.password;
         if (!email || !password) { console.log('No email/password'); return; }
 
-        // Determine email provider
-        let loginUrl = '';
+        // Determine email provider (Outlook default)
+        let loginUrl = 'https://login.live.com/'; // Outlook default
         if (email.includes('@gmail.com')) {
             loginUrl = 'https://accounts.google.com/signin';
-        } else if (email.includes('@outlook.com') || email.includes('@hotmail.com') || email.includes('@live.com')) {
-            loginUrl = 'https://login.live.com/';
-        } else {
-            loginUrl = 'https://login.live.com/'; // Default to Outlook
         }
 
         // Open email login page
