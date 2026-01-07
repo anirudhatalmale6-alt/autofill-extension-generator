@@ -548,12 +548,22 @@ function autoLoginEmail(email, password) {
         }
 
         // If email field is visible, fill email
-        if (emailInput && emailInput.offsetParent !== null && !emailInput.value) {
+        if (emailInput && emailInput.offsetParent !== null) {
             setVal(emailInput, email);
             setTimeout(() => {
-                const nextBtn = document.querySelector('input[type="submit"]') || document.querySelector('#idSIButton9');
-                if (nextBtn) nextBtn.click();
-            }, 500);
+                // Try multiple button selectors for Microsoft login
+                const nextBtn = document.querySelector('#idSIButton9') ||
+                                document.querySelector('input[type="submit"]') ||
+                                document.querySelector('button[type="submit"]') ||
+                                document.querySelector('[data-report-event="Signin_Submit"]');
+                console.log('[Ching] Clicking next button:', nextBtn);
+                if (nextBtn) {
+                    nextBtn.click();
+                    // Also try form submit as backup
+                    const form = document.querySelector('form');
+                    if (form) form.submit();
+                }
+            }, 800);
         }
     }
 }
