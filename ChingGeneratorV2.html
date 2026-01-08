@@ -142,7 +142,7 @@
             <h2>Features</h2>
             <ul class="feature-list">
                 <li><span class="shortcut-box">Ctrl+Shift+S</span> <strong>Select Profile</strong> - Choose profile + auto-login to email</li>
-                <li><span class="shortcut-box">Alt+X</span> <strong>Grab OTP</strong> - Reads verification code from email tab and fills it</li>
+                <li><span class="shortcut-box">Alt+X</span> <strong>Grab OTP</strong> - Fetches verification code from API and fills it</li>
                 <li><span class="shortcut-box">Alt+F</span> <strong>Fill Form</strong> - Autofills current page with profile data</li>
                 <li><span class="shortcut-box">Alt+C</span> <strong>Fill Card</strong> - Fills payment/card details</li>
             </ul>
@@ -320,7 +320,7 @@
                 ],
                 "commands": {
                     "select-profile": { "suggested_key": { "default": "Ctrl+Shift+S" }, "description": "Select profile" },
-                    "grab-otp": { "suggested_key": { "default": "Alt+X" }, "description": "Grab OTP from email" },
+                    "grab-otp": { "suggested_key": { "default": "Alt+X" }, "description": "Grab OTP from API" },
                     "fill-form": { "suggested_key": { "default": "Alt+F" }, "description": "Fill form" },
                     "fill-card": { "suggested_key": { "default": "Alt+C" }, "description": "Fill card details" }
                 },
@@ -363,21 +363,7 @@ chrome.commands.onCommand.addListener(async (command) => {
                 await chrome.storage.local.set({ selectedRow: r.profile - 1 });
                 const selectedProfile = profiles[r.profile - 1];
 
-                // Auto-login to email after profile selection (Outlook default)
-                if (selectedProfile && selectedProfile.email && selectedProfile.password) {
-                    let loginUrl = 'https://login.live.com/'; // Outlook default
-                    if (selectedProfile.email.includes('@gmail.com')) {
-                        loginUrl = 'https://accounts.google.com/signin';
-                    }
-                    await chrome.tabs.create({ url: loginUrl });
-                    await chrome.storage.local.set({
-                        emailLoginPending: true,
-                        emailLoginEmail: selectedProfile.email,
-                        emailLoginPassword: selectedProfile.password
-                    });
-                }
-
-                chrome.scripting.executeScript({ target: { tabId: tab.id }, func: (num, email) => { alert('Profile ' + num + ' selected!\\n\\nEmail login opened: ' + email); }, args: [r.profile, selectedProfile?.email || ''] });
+                chrome.scripting.executeScript({ target: { tabId: tab.id }, func: (num, email) => { alert('Profile ' + num + ' selected!\\n\\nEmail: ' + email); }, args: [r.profile, selectedProfile?.email || ''] });
             }
         });
     }
@@ -406,39 +392,72 @@ chrome.commands.onCommand.addListener(async (command) => {
     }
 
     if (command === 'grab-otp') {
-        // Find email tab and scrape OTP
-        const tabs = await chrome.tabs.query({});
-        let emailTab = tabs.find(t => t.url && (t.url.includes('mail.google.com') || t.url.includes('outlook.live.com') || t.url.includes('outlook.office.com')));
-
-        if (emailTab) {
-            chrome.scripting.executeScript({
-                target: { tabId: emailTab.id },
-                func: () => {
-                    // Look for OTP codes in email content (6-digit codes)
-                    const bodyText = document.body.innerText;
-                    const otpMatch = bodyText.match(/\\b(\\d{6})\\b/g);
-                    if (otpMatch && otpMatch.length > 0) {
-                        // Return the most recent/last 6-digit code found
-                        return otpMatch[otpMatch.length - 1];
-                    }
-                    // Also try common OTP patterns
-                    const codeMatch = bodyText.match(/(?:code|verification|verify|OTP)[:\\s]*(\\d{4,6})/i);
-                    if (codeMatch) return codeMatch[1];
-                    return null;
-                }
-            }).then(async (results) => {
-                const otp = results[0]?.result;
-                if (otp) {
-                    // Send OTP to the original tab to fill
-                    chrome.tabs.sendMessage(tab.id, { action: 'fillOTP', otp: otp });
-                    chrome.scripting.executeScript({ target: { tabId: tab.id }, func: (code) => { console.log('OTP found:', code); }, args: [otp] });
-                } else {
-                    chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => { alert('No OTP code found in email. Make sure email is open.'); } });
-                }
-            });
-        } else {
-            chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => { alert('No email tab found. Press Alt+L first to login to email.'); } });
+        if (!profile || !profile.email) {
+            chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => { alert('No profile selected or no email in profile.'); } });
+            return;
         }
+
+        // Show loading notification
+        chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => {
+            const n = document.createElement('div');
+            n.id = 'otp-loading';
+            n.style.cssText = 'position:fixed;top:20px;right:20px;background:#1a472a;color:white;padding:16px 24px;border-radius:8px;z-index:999999;font-family:sans-serif;';
+            n.textContent = 'Fetching OTP...';
+            document.body.appendChild(n);
+        }});
+
+        // Call OTP API
+        const fetchOTP = async (retries = 5) => {
+            for (let i = 0; i < retries; i++) {
+                try {
+                    const response = await fetch('http://3.130.191.60:3000/api/getOtp', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ email: profile.email, otpType: 'fifa' })
+                    });
+
+                    if (response.ok) {
+                        const data = await response.json();
+                        if (data.otp || data.code) {
+                            return data.otp || data.code;
+                        }
+                    }
+
+                    // 404 means not ready yet, wait and retry
+                    if (response.status === 404 && i < retries - 1) {
+                        await new Promise(r => setTimeout(r, 2000));
+                        continue;
+                    }
+                } catch (e) {
+                    console.log('OTP fetch error:', e);
+                }
+                if (i < retries - 1) await new Promise(r => setTimeout(r, 2000));
+            }
+            return null;
+        };
+
+        fetchOTP().then(otp => {
+            // Remove loading notification
+            chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => {
+                const n = document.getElementById('otp-loading');
+                if (n) n.remove();
+            }});
+
+            if (otp) {
+                chrome.tabs.sendMessage(tab.id, { action: 'fillOTP', otp: otp });
+                chrome.scripting.executeScript({ target: { tabId: tab.id }, func: (code) => {
+                    const n = document.createElement('div');
+                    n.style.cssText = 'position:fixed;top:20px;right:20px;background:#28a745;color:white;padding:16px 24px;border-radius:8px;z-index:999999;font-family:sans-serif;';
+                    n.textContent = 'OTP: ' + code;
+                    document.body.appendChild(n);
+                    setTimeout(() => n.remove(), 3000);
+                }, args: [otp] });
+            } else {
+                chrome.scripting.executeScript({ target: { tabId: tab.id }, func: () => {
+                    alert('No OTP found. It may not have arrived yet - try again in a few seconds.');
+                }});
+            }
+        });
     }
 
     if (command === 'fill-form') {
@@ -1080,11 +1099,10 @@ console.log('[Outlook] Content script ready');
     <select id="profileSelect"></select>
     <button id="fillBtn">Fill Form (Alt+F)</button>
     <button id="fillCardBtn" style="background: linear-gradient(90deg, #7b2cbf, #dc3545);">Fill Card (Alt+C)</button>
-    <button id="loginBtn" class="btn-email">Login Email (Alt+L)</button>
     <button id="otpBtn" class="btn-otp">Grab OTP (Alt+X)</button>
     <div class="shortcuts">
-        <div><span class="key">Ctrl+Shift+S</span> Select profile + login email</div>
-        <div><span class="key">Alt+X</span> Grab OTP from email</div>
+        <div><span class="key">Ctrl+Shift+S</span> Select profile</div>
+        <div><span class="key">Alt+X</span> Grab OTP from API</div>
     </div>
     <script src="popup.js"><\/script>
 </body>
@@ -1127,11 +1145,6 @@ document.addEventListener('DOMContentLoaded', async () => {
     document.getElementById('fillCardBtn').addEventListener('click', async () => {
         const [tab] = await chrome.tabs.query({ active: true, currentWindow: true });
         chrome.tabs.sendMessage(tab.id, { action: 'fillCard', data: profiles[selectedRow] });
-        window.close();
-    });
-
-    document.getElementById('loginBtn').addEventListener('click', async () => {
-        chrome.runtime.sendMessage({ action: 'triggerCommand', command: 'auto-login-email' });
         window.close();
     });
 
